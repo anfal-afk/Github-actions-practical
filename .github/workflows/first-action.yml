@@ -1,0 +1,13 @@
+name: my-first-workflow
+## when to excute the workflow
+on:  workflow_dispatch        
+jobs:
+   first-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: greeting
+        run: echo "hello world"
+            "ls -ltr"
+      - name: hey devops
+        run: echo "hello devops team "
+        
