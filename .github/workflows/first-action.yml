@@ -1,5 +1,6 @@
+### manually running workflow
 name: my-first-workflow
-## when to excute the workflow
+## when to excute the workflow 
 on:  workflow_dispatch        
 jobs:
    first-job:
