@@ -8,7 +8,16 @@ jobs:
     steps:
       - name: greeting
         run: echo "hello world"
-            "ls -ltr"
+             "ls -ltr"
       - name: hey devops
         run: echo "hello devops team "
-        
+
+   ## 2nd task -If you need to run multiple shell commands (or multi-line commands, e.g., for readability), you can easily do so by adding the pipe symbol (|) as a value after the run: key.
+      - name: test
+        run: |
+             echo "testing Multiple shell commands"
+             echo "ls -ltr"
+      - 
+        run: echo "hello devops team "
+
+      
