@@ -1,0 +1,72 @@
+name: CI-CD Python App Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest
+
+      - name: Package application
+        run: |
+          mkdir publish
+          xcopy * publish /E /I /Y
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-app
+          path: ./publish
+
+  deploy:
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: python-app
+          path: ./app
+
+      - name: Deploy to Windows Server
+        shell: pwsh
+        run: |
+          $server = "${{ secrets.WIN_SERVER }}"
+          $username = "${{ secrets.WIN_USER }}"
+          $password = ConvertTo-SecureString "${{ secrets.WIN_PASS }}" -AsPlainText -Force
+          $cred = New-Object System.Management.Automation.PSCredential ($username, $password)
+
+          Invoke-Command -ComputerName $server -Credential $cred -ScriptBlock {
+            # Deployment steps for Python app
+            $appPath = "C:\apps\python-app"
+            if (!(Test-Path $appPath)) { New-Item -ItemType Directory -Path $appPath }
+            Copy-Item -Path "C:\actions-runner\_work\app\*" -Destination $appPath -Recurse -Force
+
+            # Optional: Create virtual environment and install dependencies
+            cd $appPath
+            python -m venv venv
+            .\venv\Scripts\activate
+            pip install -r requirements.txt
+
+            # Restart service or run app
+            # Example: Start a Flask app
+            Start-Process -FilePath "python" -ArgumentList "app.py"
+          }
