@@ -22,9 +22,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests
-        run: pytest
-
       - name: Package application
         run: |
           mkdir publish
@@ -36,9 +33,48 @@ jobs:
           name: python-app
           path: ./publish
 
-  deploy:
+  test:
     runs-on: windows-latest
     needs: build
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: python-app
+          path: ./app
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd ./app
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Unit Tests
+        run: |
+          cd ./app
+          pytest tests/unit --maxfail=1 --disable-warnings -q
+
+      - name: Run Integration Tests
+        run: |
+          cd ./app
+          pytest tests/integration --maxfail=1 --disable-warnings -q
+
+      - name: Rollback on Test Failure
+        if: failure()
+        run: |
+          echo "Tests failed! Triggering rollback..."
+          # Notify team or revert to previous stable version
+          # Example: Send Slack or email notification
+          # Actual rollback will happen in deploy stage if needed
+
+  deploy:
+    runs-on: windows-latest
+    needs: test
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v3
@@ -49,24 +85,39 @@ jobs:
       - name: Deploy to Windows Server
         shell: pwsh
         run: |
-          $server = "${{ secrets.WIN_SERVER }}"
-          $username = "${{ secrets.WIN_USER }}"
-          $password = ConvertTo-SecureString "${{ secrets.WIN_PASS }}" -AsPlainText -Force
-          $cred = New-Object System.Management.Automation.PSCredential ($username, $password)
+          try {
+            $server = "${{ secrets.WIN_SERVER }}"
+            $username = "${{ secrets.WIN_USER }}"
+            $password = ConvertTo-SecureString "${{ secrets.WIN_PASS }}" -AsPlainText -Force
+            $cred = New-Object System.Management.Automation.PSCredential ($username, $password)
 
-          Invoke-Command -ComputerName $server -Credential $cred -ScriptBlock {
-            # Deployment steps for Python app
-            $appPath = "C:\apps\python-app"
-            if (!(Test-Path $appPath)) { New-Item -ItemType Directory -Path $appPath }
-            Copy-Item -Path "C:\actions-runner\_work\app\*" -Destination $appPath -Recurse -Force
+            Invoke-Command -ComputerName $server -Credential $cred -ScriptBlock {
+              $appPath = "C:\apps\python-app"
+              # Backup current version before deployment
+              if (Test-Path $appPath) {
+                Copy-Item -Path $appPath -Destination "C:\apps\python-app-backup" -Recurse -Force
+              }
 
-            # Optional: Create virtual environment and install dependencies
-            cd $appPath
-            python -m venv venv
-            .\venv\Scripts\activate
-            pip install -r requirements.txt
+              # Deploy new version
+              if (!(Test-Path $appPath)) { New-Item -ItemType Directory -Path $appPath }
+              Copy-Item -Path "C:\actions-runner\_work\app\*" -Destination $appPath -Recurse -Force
 
-            # Restart service or run app
-            # Example: Start a Flask app
-            Start-Process -FilePath "python" -ArgumentList "app.py"
+              cd $appPath
+              python -m venv venv
+              .\venv\Scripts\activate
+              pip install -r requirements.txt
+
+              # Start the app (Flask/Django/etc.)
+              Start-Process -FilePath "python" -ArgumentList "app.py"
+            }
+          }
+          catch {
+            Write-Host "Deployment failed! Rolling back..."
+            Invoke-Command -ComputerName $server -Credential $cred -ScriptBlock {
+              if (Test-Path "C:\apps\python-app-backup") {
+                Remove-Item -Path "C:\apps\python-app" -Recurse -Force
+                Copy-Item -Path "C:\apps\python-app-backup\*" -Destination "C:\apps\python-app" -Recurse -Force
+              }
+            }
+            exit 1
           }
